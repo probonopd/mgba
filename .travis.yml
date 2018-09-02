@@ -1,30 +1,33 @@
-if: type = pull_request OR NOT branch =~ /^(master$|optimization)/ OR fork
-language: c
-sudo: required
-services:
-- docker
-os: linux
-env:
-- DOCKER_TAG=ubuntu:xenial
-- DOCKER_TAG=ubuntu:artful
-- DOCKER_TAG=ubuntu:bionic
-- DOCKER_TAG=3ds
-- DOCKER_TAG=wii
-- DOCKER_TAG=vita
-- DOCKER_TAG=windows:w32
-- DOCKER_TAG=windows:w64
-
-matrix:
-  include:
-  - os: osx
-    compiler: clang
-    env: DOCKER_TAG=
+language: cpp
+compiler: gcc
+sudo: require
+dist: trusty
 
 before_install:
-- '[ -z "$DOCKER_TAG" ] || docker pull mgba/$DOCKER_TAG'
-- '[ "$TRAVIS_OS_NAME" != "osx" ] || . ./.travis-deps.sh'
-- 'mkdir build && chmod 777 build'
+  - sudo add-apt-repository ppa:beineri/opt-qt510-trusty -y
+  - sudo add-apt-repository ppa:smspillaz/cmake-2.8.12 -y
+  - sudo apt-add-repository ppa:zoogie/sdl2-snapshots -y
+  - sudo apt-get update -qq
+  - sudo apt-get purge cmake -qq
+  - sudo apt-get install -y -qq cmake libedit-dev libmagickwand-dev libpng-dev libsdl2-dev libzip-dev qt10base qt510multimedia qt5103d
+  - source /opt/qt*/bin/qt*-env.sh
 
-script:
-- '[ -z "$DOCKER_TAG" ] || docker run -e BUILD_DIR=build -e MAKEFLAGS=-j2 -v $PWD:/home/mgba/src mgba/$DOCKER_TAG'
-- '[ "$TRAVIS_OS_NAME" != "osx" ] || (cd build && cmake -DCMAKE_PREFIX_PATH="/usr/local/opt/qt5" .. && make -j2)'
+script: 
+  - cmake . -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  - make -j$(nproc)
+  - make DESTDIR=appdir -j$(nproc) install ; find appdir/
+  - wget -c -nv "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
+  - chmod a+x linuxdeployqt-continuous-x86_64.AppImage
+  - unset QTDIR; unset QT_PLUGIN_PATH ; unset LD_LIBRARY_PATH
+  - export VERSION=$(git rev-parse --short HEAD) # linuxdeployqt uses this for naming the file
+  - ./linuxdeployqt-continuous-x86_64.AppImage appdir/usr/share/applications/*.desktop -appimage
+
+after_success:
+  - find appdir -executable -type f -exec ldd {} \; | grep " => /usr" | cut -d " " -f 2-3 | sort | uniq
+  - wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
+  - bash upload.sh mGBA*.AppImage*
+  
+branches:
+  except:
+    - # Do not build tags that we create when we upload to GitHub Releases
+    - /^(?i:continuous)/
